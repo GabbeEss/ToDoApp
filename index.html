@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+        }
+        header {
+            background-color: #333;
+            color: #fff;
+            padding: 10px;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .task {
+            padding: 10px;
+            margin: 10px 0;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .task.completed {
+            background-color: #d4edda;
+        }
+        form {
+            margin-top: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .error-message {
+            color: red;
+            margin-bottom: 10px;
+        }
+        .success-message {
+            color: green;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Task Manager</h1>
+    </header>
+    <div class="container">
+        <h2>All Tasks</h2>
+        <button id="sort-pending">Show Pending</button>
+        <button id="sort-completed">Show Completed</button>
+        <button id="show-all">Show All</button>
+        <div id="task-list">
+            <!-- Tasks will be dynamically inserted here -->
+        </div>
+
+        <h2>Find Task by ID</h2>
+        <form id="find-task-form">
+            <label for="task-id">Enter Task ID:</label>
+            <input type="number" id="task-id" name="task-id" required>
+            <button type="submit">Find Task</button>
+        </form>
+        <div id="single-task-result"></div>
+
+        <h2>Add a New Task</h2>
+        <div id="message-box"></div>
+        <form id="task-form">
+            <label for="description">Description:</label>
+            <input type="text" id="description" name="description" required>
+
+            <label for="category">Category:</label>
+            <input type="text" id="category" name="category" required>
+
+            <button type="submit">Add Task</button>
+        </form>
+    </div>
+
+    <script>
+        // Fetch and display all tasks
+        async function fetchTasks(filter = null) {
+            const response = await fetch('/tasks');
+            let tasks = await response.json();
+
+            if (filter === 'pending') {
+                tasks = tasks.filter(task => !task.completed);
+            } else if (filter === 'completed') {
+                tasks = tasks.filter(task => task.completed);
+            }
+
+            const taskList = document.getElementById('task-list');
+            taskList.innerHTML = '';
+
+            tasks.forEach(task => {
+                const taskDiv = document.createElement('div');
+                taskDiv.className = `task ${task.completed ? 'completed' : ''}`;
+                taskDiv.innerHTML = `
+                    <strong>ID:</strong> ${task.id}<br>
+                    <strong>Description:</strong> ${task.description}<br>
+                    <strong>Category:</strong> ${task.category}<br>
+                    <strong>Completed:</strong> ${task.completed ? 'Yes' : 'No'}<br>
+                    <button onclick="completeTask(${task.id})">Mark as Complete</button>
+                    <button onclick="deleteTask(${task.id})">Delete</button>
+                `;
+                taskList.appendChild(taskDiv);
+            });
+        }
+
+        // Handle form submission for adding a new task
+        const taskForm = document.getElementById('task-form');
+        const messageBox = document.getElementById('message-box');
+
+        taskForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const description = document.getElementById('description').value;
+            const category = document.getElementById('category').value;
+
+            try {
+                const response = await fetch('/tasks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ description, category }),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.description || 'Failed to add task.');
+                }
+
+                const newTask = await response.json();
+                messageBox.innerHTML = '<div class="success-message">Task added successfully!</div>';
+                taskForm.reset();
+                fetchTasks();
+            } catch (error) {
+                messageBox.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        });
+
+        // Mark a task as complete
+        async function completeTask(taskId) {
+            try {
+                const response = await fetch(`/tasks/${taskId}/complete`, {
+                    method: 'PUT',
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.description || 'Failed to mark task as complete.');
+                }
+
+                messageBox.innerHTML = '<div class="success-message">Task marked as complete!</div>';
+                fetchTasks();
+            } catch (error) {
+                messageBox.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        // Delete a task with password
+        async function deleteTask(taskId) {
+            const password = prompt('Enter password to delete this task:');
+            if (!password) {
+                alert('Password is required to delete a task.');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/tasks/${taskId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ password }),
+                });
+
+                if (!response.ok) {
+                    if (response.status === 403) {
+                        throw new Error('Unauthorized: Invalid password.');
+                    } else {
+                        const errorData = await response.json();
+                        throw new Error(errorData.description || 'Failed to delete task.');
+                    }
+                }
+
+                messageBox.innerHTML = '<div class="success-message">Task deleted successfully!</div>';
+                fetchTasks();
+            } catch (error) {
+                messageBox.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        // Handle form submission for finding a task by ID
+        const findTaskForm = document.getElementById('find-task-form');
+        const singleTaskResult = document.getElementById('single-task-result');
+
+        findTaskForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const taskId = document.getElementById('task-id').value;
+
+            try {
+                const response = await fetch(`/tasks/${taskId}`);
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error('Task not found.');
+                    }
+                    const errorData = await response.json();
+                    throw new Error(errorData.description || 'Failed to fetch task.');
+                }
+
+                const task = await response.json();
+                singleTaskResult.innerHTML = `
+                    <div class="task ${task.completed ? 'completed' : ''}">
+                        <strong>ID:</strong> ${task.id}<br>
+                        <strong>Description:</strong> ${task.description}<br>
+                        <strong>Category:</strong> ${task.category}<br>
+                        <strong>Completed:</strong> ${task.completed ? 'Yes' : 'No'}
+                    </div>
+                `;
+            } catch (error) {
+                singleTaskResult.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        });
+
+        // Sorting buttons
+        document.getElementById('sort-pending').addEventListener('click', () => fetchTasks('pending'));
+        document.getElementById('sort-completed').addEventListener('click', () => fetchTasks('completed'));
+        document.getElementById('show-all').addEventListener('click', () => fetchTasks());
+
+        // Initialize the app by fetching tasks
+        fetchTasks();
+    </script>
+</body>
+</html>
